@@ -1,0 +1,5 @@
+---
+- name: Run bash script
+  script: prerequisite.sh
+
+  

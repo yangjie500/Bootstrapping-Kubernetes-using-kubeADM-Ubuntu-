@@ -1,0 +1,79 @@
+---
+- hosts: tag_nodetype_worker
+  become: yes
+  
+  roles:
+    - role: utils-role
+    - role: install_docker
+    - role: setup_cri-dockerd
+    - role: kubelet
+
+- hosts: tag_nodetype_master
+  become: yes
+  # Pip install kubernetes
+  tasks:
+    - name: Install python-pip
+      apt:
+        name: python3-pip
+
+    - name: Install kubernetes on Pip
+      pip:
+        name: kubernetes
+
+    - name: Check if controlplane is set up
+      stat:
+        path: /etc/kubernetes/admin.conf
+      register: api_status
+
+    - debug:
+        var: api_status
+      
+    - name: Initialize Kubeadm
+      command: 
+        #cmd: kubeadm init --pod-network-cidr 10.244.0.0/16 --apiserver-advertise-address=192.168.10.102 --cri-socket unix:///var/run/cri-dockerd.sock
+        cmd: sudo kubeadm init --cri-socket unix:///var/run/cri-dockerd.sock --ignore-preflight-errors=NumCPU,Mem
+      when: " not api_status.stat.exists " 
+      register: init_kube
+
+    - name: Save output to remote machine
+      copy:
+        content: "{{ init_kube.stdout_lines  }}"
+        dest: "./output.txt"
+      when: " not api_status.stat.exists " 
+
+    - debug:
+        var: init_kube.stdout_lines
+      when: " not api_status.stat.exists " 
+
+    - name: Create .kube directory for particular user
+      file:
+        path: "~/.kube"
+        state: directory
+      become_user: ubuntu
+      become: yes
+
+    - name: copy kubernetes config folder to user directory
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/ubuntu/.kube/config
+        remote_src: yes
+        owner: ubuntu
+
+    - name: Get Weave CNI yaml 
+      get_url: 
+        url: https://github.com/weaveworks/weave/releases/download/v2.8.1/weave-daemonset-k8s.yaml
+        dest: "~"
+      become_user: ubuntu
+      become: yes
+
+    - name: Run Weave CNI yaml file
+      kubernetes.core.k8s:
+        state: present
+        src: ~/weave-daemonset-k8s.yaml
+      become_user: ubuntu
+      become: yes
+
+
+
+
+#kubeadm join 10.0.101.130:6443 --token tmi5rj.sycy7e35noe3r9uj --discovery-token-ca-cert-hash sha256:fc3e413ffb113c536c2f91df6ad11e2da6eab0c49bf30bfd75e0320619ad8789

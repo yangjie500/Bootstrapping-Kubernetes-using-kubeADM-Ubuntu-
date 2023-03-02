@@ -1,0 +1,113 @@
+---
+#tasks file for setup_cri-dockerd
+- name: Install Git
+  apt: 
+    name: git
+    state: present
+    update_cache: yes
+
+- name: Get GO binary
+  get_url:
+    url: https://storage.googleapis.com/golang/getgo/installer_linux
+    dest: .
+    mode: '0755'
+
+- name: Check if GO is installed
+  command: ~/.go/bin/go version
+  register: go
+  ignore_errors: true
+  changed_when: true
+  become_user: ubuntu
+
+- name: Install GO and save path variable
+  command: |
+    ./installer_linux
+    source ~/.bash_profile
+  when: " go.stdout == '' "
+  become_user: ubuntu
+
+# Compile Cri-dockerd 
+ 
+- name: Clone the cri-dockerd repo
+  git:
+    repo: https://github.com/Mirantis/cri-dockerd.git
+    dest: ~/cri-dockerd
+  become_user: ubuntu
+
+- name: Make a bin directory for cri-dockerd
+  file:
+    path: ~/cri-dockerd/bin
+    state: directory
+  become_user: ubuntu
+
+- name: Check if GO binary is compiled
+  stat:
+    path: ~/cri-dockerd/bin/cri-dockerd
+  register: cri_binary
+  become_user: ubuntu
+
+- name: build go binary
+  command:
+    chdir: ~/cri-dockerd
+    cmd: ~/.go/bin/go build -o bin/cri-dockerd
+  when: " not cri_binary.stat.exists "
+  become_user: ubuntu
+
+# Installing Cri-dockerd in general folder
+- name: Create folder if not exists
+  file:
+    path: /usr/local/bin
+    state: directory
+  
+- name: Check if cri-dockerd script exists in /usr/local/bin
+  stat:
+    path: /usr/local/bin/cri-dockerd
+  register: cri_dockerd
+  
+# - debug:
+#     var: cri_dockerd
+
+- name: Install cri-dockerd if not exists in /usr/local/bin
+  command:
+    chdir: /home/ubuntu/cri-dockerd
+    cmd: install -o root -g root -m 0755 bin/cri-dockerd /usr/local/bin/cri-dockerd
+  when: " not cri_dockerd.stat.exists "
+
+# Ensure systemd knows where to find cri-dockerd
+
+- name: Copy cri-dockerd's systemd unit file into systemd folder of the host
+  copy:
+    src: /home/ubuntu/cri-dockerd/packaging/systemd/
+    dest: /etc/systemd/system/
+    remote_src: true
+
+# - name: Replace line in systemd unit file
+#   lineinfile:
+#     path: /etc/systemd/system/cri-docker.service
+#     regexp: /usr/bin/cri-dockerd
+#     line: /usr/local/bin/cri-dockerd
+#     backrefs: yes
+
+- name: Replace string in systemd unit file
+  replace:
+    path: /etc/systemd/system/cri-docker.service
+    regexp: /usr/bin/cri-dockerd
+    replace: /usr/local/bin/cri-dockerd
+
+- name: Reload systemctl daemon
+  command:
+    cmd: systemctl daemon-reload
+  changed_when: false
+
+- name: Enable cri-docker.service
+  service: 
+    name: cri-docker
+    enabled: true
+    state: started
+
+- name: Enabled cri-docker.socket
+  service:
+    name: cri-docker.socket
+    enabled: true
+    state: started
+

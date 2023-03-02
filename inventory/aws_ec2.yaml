@@ -1,0 +1,15 @@
+---
+plugin: amazon.aws.aws_ec2
+# aws_access_key: <YOUR-AWS-ACCESS-KEY-HERE>
+# aws_secret_key: <YOUR-AWS-SECRET-KEY-HERE>
+regions:
+  - us-east-1
+aws_profile: admin
+keyed_groups:
+  - key: tags.nodetype
+    prefix: tag.nodetype
+  - key: tags.Environment
+    prefix: all
+hostnames:
+  # This option allows displaying the public ip addresses.
+  - ip-address
